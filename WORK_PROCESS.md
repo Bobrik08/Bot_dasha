@@ -13,7 +13,7 @@ git checkout -b <название_ветки>
 
 ## 3) Коммитим изменения:
 ```bash
-git add .  # или конкретные файлы
+git add "все файлы которые поменялись"
 git commit -m "описание изменений"
 git push origin <название_ветки>
 ```
@@ -32,7 +32,7 @@ git push origin <название_ветки>
 git checkout <название_ветки>
 git rebase main
 # Решаем конфликты для КАЖДОГО коммита!
-git add .
+git add "все файлы которые поменялись"
 git rebase --continue
 git push origin <название_ветки> --force-with-lease
 ```
