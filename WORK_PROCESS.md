@@ -23,6 +23,8 @@ git push origin <название_ветки>
 - Создаем Pull Request
 - Выбираем TL
 
+https://yandex.ru/video/preview/17637132603530817441 -- пример Pull Request
+
 ## 5) Код ревью
 - Ждем проверки кодика
 - Исправляем замечания если есть
@@ -36,3 +38,5 @@ git add "все файлы которые поменялись"
 git rebase --continue
 git push origin <название_ветки> --force-with-lease
 ```
+
+
