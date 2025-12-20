@@ -9,7 +9,8 @@ venv/
 ENV/
 .venv
 
-# Environment variables - КРИТИЧЕСКИ ВАЖНО: никогда не коммитить реальные секреты!
+# Environment variables
+# Юля, на всякий случай, не надо коммитить секреты! Файл .env должен быть в .gitignore
 .env
 .env.local
 .env.*.local
