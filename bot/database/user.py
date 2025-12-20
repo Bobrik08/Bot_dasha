@@ -1,29 +1,53 @@
 """
-================================================================================
-РАБОТА С ПОЛЬЗОВАТЕЛЯМИ В БД
-================================================================================
+Устаревший файл - используйте репозитории из bot.database.repositories.
 
-Этот файл содержит функции для работы с пользователями:
-- Создание пользователя
-- Получение пользователя по ID
-- Обновление данных пользователя
-- Получение списка пользователей
-- Статистика по пользователям
-
-ЧТО НУЖНО СДЕЛАТЬ:
-- [ ] Реализовать функцию create_user(user_data) - создание пользователя
-- [ ] Реализовать функцию get_user(telegram_id) - получение пользователя
-- [ ] Реализовать функцию update_user(telegram_id, **kwargs) - обновление
-- [ ] Создать функцию get_or_create_user(telegram_id, **kwargs) - получить или создать
-- [ ] Реализовать функцию get_all_users() - список всех пользователей
-- [ ] Добавить функцию get_active_users() - активные пользователи
-- [ ] Создать функцию get_user_count() - количество пользователей
-- [ ] Реализовать функцию delete_user(telegram_id) - удаление (если нужно)
-- [ ] Добавить обработку ошибок (пользователь не найден и т.д.)
-
+Этот файл оставлен для обратной совместимости.
+Новые функции должны использовать репозитории.
 """
 
-# TODO: Реализовать функции работы с пользователями
-# TODO: Добавить обработку ошибок
-# TODO: Оптимизировать запросы
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.database.connection import db
+from bot.database.repositories import UserRepository
+
+
+async def get_user(telegram_id: int) -> Optional:
+    """Получить пользователя по Telegram ID.
+    
+    Args:
+        telegram_id: Telegram ID пользователя
+        
+    Returns:
+        Пользователь или None
+    """
+    async with db.get_session() as session:
+        repo = UserRepository(session)
+        return await repo.get_by_telegram_id(telegram_id)
+
+
+async def get_or_create_user(
+    telegram_id: int,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None
+):
+    """Получить пользователя или создать нового.
+    
+    Args:
+        telegram_id: Telegram ID пользователя
+        username: Имя пользователя
+        first_name: Имя
+        last_name: Фамилия
+        
+    Returns:
+        Пользователь (существующий или новый)
+    """
+    async with db.get_session() as session:
+        repo = UserRepository(session)
+        return await repo.get_or_create(
+            telegram_id=telegram_id,
+            username=username,
+            first_name=first_name,
+            last_name=last_name
+        )
