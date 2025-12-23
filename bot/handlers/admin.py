@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.utils.markdown import hcode
 
 from config import ADMIN_IDS
-from bot.database import user as user_db
+from bot.database.repository import user_repo
 
 router = Router()
 
@@ -54,7 +54,7 @@ async def add_user_cmd(message: types.Message) -> None:
         )
         return
 
-    ok = await user_db.add_to_blacklist(user_id=user_id, username=username)
+    ok = await user_repo.add_to_blacklist(user_id=user_id, username=username)
     if ok:
         await message.answer(f"Ок, {user_id} добавлен в чёрный список.")
     else:
@@ -79,7 +79,7 @@ async def del_user_cmd(message: types.Message) -> None:
         await message.answer("id должен быть числом.")
         return
 
-    deleted = await user_db.remove_from_blacklist(user_id=user_id)
+    deleted = await user_repo.remove_from_blacklist(user_id=user_id)
     if deleted:
         await message.answer(f"{user_id} убран из чёрного списка.")
     else:
@@ -92,7 +92,7 @@ async def stats_cmd(message: types.Message) -> None:
         await message.answer("Статистика только для админов.")
         return
 
-    stats = await user_db.get_stats()
+    stats = await user_repo.get_stats()
 
     text = [
         "📊 Стата по модерации:",
@@ -106,20 +106,73 @@ async def stats_cmd(message: types.Message) -> None:
 
 
 @router.message(Command("force_check"))
-async def force_check_cmd(message: types.Message) -> None:
+async def cmd_force_check(message: types.Message) -> None:
     if not is_admin(message):
-        await message.answer("Эту штуку могут запускать только админы.")
+        await message.answer("Эта команда только для админов, сорян(")
         return
 
-    await message.answer("Пробую проверить участников (учебная проверка)...")
+    await message.answer("Окей, пройдемся по черному списку и забаним, кого надо")
 
-    banned_users = await user_db.run_check_for_chat(message.chat.id)
+    #берем id из нашего репозитория
+    banned_users = await user_repo.run_check_for_chat(message.chat.id)
 
     if not banned_users:
-        await message.answer("Нарушителей не нашли, всё ок ✅")
+        await message.answer("В чёрном списке никого нет, банить некого)")
         return
 
-    lines = [f"Нашли в чёрном списке: {len(banned_users)}"]
+    actually_banned: list[int] = []
+    failed: list[int] = []
+
     for uid in banned_users:
-        lines.append(f"- {uid}")
+        try:
+            # тут запрос в тг
+            await message.bot.ban_chat_member(chat_id=message.chat.id, user_id=uid)
+            actually_banned.append(uid)
+        except Exception:
+            failed.append(uid)
+
+    lines: list[str] = []
+    if actually_banned:
+        lines.append(f"Забанили пользователей: {len(actually_banned)}")
+        for uid in actually_banned:
+            lines.append(f"- {uid}")
+
+    if failed:
+        lines.append("")
+        lines.append("Не получилось забанить (нет прав или пользователя уже нет в чате):")
+        for uid in failed:
+            lines.append(f"- {uid}")
+
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("addchat"))
+async def add_chat_cmd(message: types.Message) -> None:
+    """Добавляем текущий чат в список тех, которые бот будет чистить по расписанию"""
+    if not _is_admin(message):
+        await message.answer("Эта команда только для админов.")
+        return
+
+    chat_id = message.chat.id
+    added = await user_repo.add_moderated_chat(chat_id)
+
+    if added:
+        await message.answer(f"Ок, запомнил этот чат ({chat_id}) как чат для периодической проверки.")
+    else:
+        await message.answer("Этот чат уже был в списке, ничего не поменял.")
+
+
+@router.message(Command("delchat"))
+async def del_chat_cmd(message: types.Message) -> None:
+    """Убираем текущий чат из списка для периодической проверки"""
+    if not _is_admin(message):
+        await message.answer("Эта команда только для админов.")
+        return
+
+    chat_id = message.chat.id
+    removed = await user_repo.remove_moderated_chat(chat_id)
+
+    if removed:
+        await message.answer(f"Убрал этот чат ({chat_id}) из списка для периодической проверки.")
+    else:
+        await message.answer("Этого чата и так не было в списке.")

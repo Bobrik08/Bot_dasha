@@ -1,51 +1,65 @@
+"""
+Конфиг проекта
+
+тут лежит все, что может понадобиться боту:
+- токен
+- список админов
+- строка подключения к БД
+- какие чаты бот периодически чистит
+"""
+
 import os
-from dataclasses import dataclass
-from typing import List
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _parse_admin_ids(raw: str | None) -> List[int]:
-    result: List[int] = []
-    if not raw:
-        return result
+def _parse_ids(env_name: str) -> list[int]:
 
-    parts = raw.split(",")
-    for part in parts:
-        part = part.strip()
-        if not part:
+    raw = os.getenv(env_name, "")
+    result: list[int] = []
+
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
             continue
         try:
-            result.append(int(part))
+            result.append(int(chunk))
         except ValueError:
-            continue
+            print(f"[config] предупреждение: в переменной {env_name} встретилось странное значение: {chunk!r}")
+
     return result
 
 
-@dataclass
-class Config:
-    bot_token: str
-    database_url: str
-    admin_ids: List[int]
+# токен бота
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
+if not BOT_TOKEN:
+    raise SystemExit("[config] Не задан BOT_TOKEN в .env, боту нечем авторизоваться(")
 
 
-config = Config(
-    bot_token=os.getenv("BOT_TOKEN", ""),
-    database_url=os.getenv("DATABASE_URL", ""),
-    admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS")),
+# админы бота
+
+ADMIN_IDS: list[int] = _parse_ids("ADMIN_IDS")
+
+if not ADMIN_IDS:
+    print("[config] предупреждение: ADMIN_IDS пустой. Админов сейчас нет")
+
+
+# база данных
+
+# здесь лежит URL до бд
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL",
+    "sqlite+aiosqlite:///./bot_data.db",
 )
 
 
-BOT_TOKEN = config.bot_token
-DATABASE_URL = config.database_url
-ADMIN_IDS = config.admin_ids
+# чаты, которые бот чистит по расписанию
 
-if not BOT_TOKEN:
-    raise RuntimeError(
-        "BOT_TOKEN не задан. Создай файл .env в корне проекта и добавь строку BOT_TOKEN=..."
-    )
+MODERATED_CHAT_IDS: list[int] = _parse_ids("MODERATED_CHAT_IDS")
 
-if not ADMIN_IDS:
-    print("Внимание: ADMIN_IDS пустой, админ-команды работать не будут.")
+if not MODERATED_CHAT_IDS:
+    print("[config] инфо: MODERATED_CHAT_IDS пустой, периодическая проверка чатов выключена")

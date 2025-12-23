@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: dasha_bot_db
+    environment:
+      POSTGRES_DB: dashabot
+      POSTGRES_USER: dashabot
+      POSTGRES_PASSWORD: dashabot
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  bot:
+    build: .
+    container_name: dasha_bot
+    env_file:
+      - .env
+    depends_on:
+      - db
+    # чтобы бот сам запускался, если вдруг упадёт
+    restart: unless-stopped
+
+volumes:
+  db_data:
