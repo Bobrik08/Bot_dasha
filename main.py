@@ -1,7 +1,7 @@
 """
 Точка входа в бота.
 
-- создаём Bot и Dispatcher,
+- создаем Bot и Dispatcher,
 - подтягиваем хендлеры,
 - по желанию включаем фоновую чистку чатов,
 - запускаем polling.
@@ -29,37 +29,72 @@ CHECK_EVERY_SECONDS = 60 * 60 * 24  # раз в сутки
 
 async def periodic_cleanup(bot: Bot) -> None:
     """
-    Фоновая чистка чатов по чс
+    Фоновая проверка чатов по расписанию.
+
+    Логика:
+    - раз в минуту смотрим время по UTC;
+    - если наступило 08:00 UTC и за этот день еще не проверяли,
+      то пробегаемся по всем чатам из MODERATED_CHAT_IDS;
+    - для каждого чата пытаемся забанить пользователей из черного списка;
+    - отправляем краткий отчет в сам чат и админам.
     """
-    logging.info("periodic_cleanup: фоновый сервис стартовал")
+    logger.info("periodic_cleanup: фоновый сервис стартовал")
+
+    last_run_date: dt.date | None = None
 
     while True:
-        chats_from_config = list(MODERATED_CHAT_IDS)
+        now_utc = dt.datetime.utcnow()
+        today = now_utc.date()
 
-        # чаты, добавленные через /addchat и хранящиеся в бд
-        try:
-            chats_from_db = await user_repo.get_moderated_chats()
-        except Exception as exc:
-            logging.error("periodic_cleanup: не смогли получить чаты из БД: %r", exc)
-            chats_from_db = []
+        # если сейчас 08:00 UTC и мы еще не запускали проверку сегодня
+        if now_utc.hour == 8 and last_run_date != today:
+            last_run_date = today
 
-        # объединяем, убираем дубли
-        chats = sorted({*chats_from_config, *chats_from_db})
+            if not MODERATED_CHAT_IDS:
+                logger.info("periodic_cleanup: чатов нет, просто отмечаем запуск на сегодня")
+            else:
+                logger.info(
+                    "periodic_cleanup: запускаю ежедневную проверку для чатов: %s",
+                    MODERATED_CHAT_IDS,
+                )
 
-        if not chats:
-            logging.info("periodic_cleanup: чатов нет, просто сплю")
-            await asyncio.sleep(CLEANUP_EVERY_SECONDS)
-            continue
+            for chat_id in MODERATED_CHAT_IDS:
+                try:
+                    banned_users = await _ban_blacklisted_in_chat(bot, chat_id)
+                except Exception:
+                    logger.exception("periodic_cleanup: ошибка при проверке чата %s", chat_id)
+                    continue
 
-        for chat_id in chats:
-            banned = await admin_handlers._ban_blacklisted_in_chat(bot, chat_id)
-            logging.info(
-                "periodic_cleanup: чат %s, забанили %d пользователей из чёрного списка",
-                chat_id,
-                len(banned),
-            )
+                # текст отчета
+                if banned_users:
+                    text = (
+                        "Ежедневная проверка чата завершена.\n"
+                        f"Забанено пользователей по черному списку: {len(banned_users)}\n"
+                        + "\n".join(f"- {uid}" for uid in banned_users)
+                    )
+                else:
+                    text = "Ежедневная проверка чата: нарушителей по черному списку не найдено"
 
-        await asyncio.sleep(CLEANUP_EVERY_SECONDS)
+                # попытаться отправить отчет в сам чат
+                try:
+                    await bot.send_message(chat_id, text)
+                except Exception:
+                    logger.exception("periodic_cleanup: не удалось отправить отчет в чат %s", chat_id)
+
+                # продублировать админам
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await bot.send_message(
+                            admin_id,
+                            f"[чат {chat_id}] {text}",
+                        )
+                    except Exception:
+                        logger.exception(
+                            "periodic_cleanup: не удалось отправить отчет админу %s", admin_id
+                        )
+
+        # спим минутку
+        await asyncio.sleep(60)
 
 
 async def setup_commands(bot: Bot) -> None:

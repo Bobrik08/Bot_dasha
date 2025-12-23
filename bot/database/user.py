@@ -1,14 +1,3 @@
-"""
-Простая учебная реализация "базы" для работы с пользователями.
-
-!!! ВАЖНО
-Сейчас всё хранится просто в памяти процесса (в глобальных переменных).
-После перезапуска бота данные пропадут.
-
-Позже сюда можно будет прикрутить настоящую БД (Postgres + SQLAlchemy),
-сохранив те же имена функций, чтобы не переписывать хендлеры.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -17,7 +6,7 @@ from typing import Dict, List, Optional, Set
 # чаты, которые мы хотим проверять по расписанию
 _moderated_chats: set[int] = set()
 
-# Чёрный список пользователей: просто id
+# Черный список пользователей: просто id
 _blacklist: Set[int] = set()
 
 # Логи действий модерации
@@ -26,8 +15,8 @@ _logs: List[Dict[str, object]] = []
 
 async def add_to_blacklist(user_id: int, username: Optional[str] = None) -> bool:
     """
-    Добавить пользователя в чёрный список.
-    Возвращает True, если добавили, False — если он уже там был.
+    Добавить пользователя в черный список.
+    Возвращает True, если добавили, False - если он уже там был.
     """
     global _blacklist, _logs
 
@@ -48,8 +37,8 @@ async def add_to_blacklist(user_id: int, username: Optional[str] = None) -> bool
 
 async def remove_from_blacklist(user_id: int) -> bool:
     """
-    Удалить пользователя из чёрного списка.
-    True — если удалили, False — если его там не было.
+    Удалить пользователя из черного списка.
+    True - если удалили, False - если его там не было.
     """
     global _blacklist, _logs
 
@@ -98,11 +87,11 @@ async def run_check_for_chat(chat_id: int) -> List[int]:
             "action": "check_chat",
             "chat_id": chat_id,
             "count": len(_blacklist),
-            "timestamp": datetime.datetime.utcnow(),
+            "timestamp": datetime.utcnow(),
         }
     )
 
-    # возвращаем список id из чёрного списка
+    # возвращаем список id из черного списка
     return list(_blacklist)
 
 
