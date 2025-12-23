@@ -5,3 +5,6 @@ alembic
 python-dotenv
 pytest
 pytest-asyncio
+pytest-cov
+aiosqlite>=0.19
+greenlet>=3.0

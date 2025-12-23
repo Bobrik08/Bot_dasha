@@ -1,28 +1,34 @@
 """
-================================================================================
-ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ
-================================================================================
-
-Этот файл содержит настройки и функции для подключения к базе данных:
-- Создание engine и session
-- Инициализация БД
-- Закрытие соединений
-- Настройка пула соединений
-
-ЧТО НУЖНО СДЕЛАТЬ:
-- [ ] Выбрать ORM (SQLAlchemy, Tortoise ORM, или другой)
-- [ ] Настроить подключение к БД (PostgreSQL/MySQL/SQLite)
-- [ ] Создать engine для подключения
-- [ ] Реализовать функцию get_db() для получения сессии
-- [ ] Создать функцию init_db() для инициализации (создание таблиц)
-- [ ] Реализовать функцию close_db() для закрытия соединений
-- [ ] Настроить пул соединений
-- [ ] Добавить обработку ошибок подключения
-- [ ] Реализовать миграции (если используется Alembic)
-
+Подключение к бд и async-сессии
 """
 
-# TODO: Настроить подключение к БД
-# TODO: Реализовать функции get_db, init_db, close_db
-# TODO: Добавить обработку ошибок
+from __future__ import annotations
 
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from config import DATABASE_URL
+
+
+# сам движок
+engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False)
+
+SessionFactory = async_sessionmaker(
+    bind=engine,
+    expire_on_commit=False,
+    class_=AsyncSession,
+)
+
+
+async def init_db() -> None:
+    """
+    Создаем таблицы, если их ещё нет
+    """
+    from .models import Base
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)

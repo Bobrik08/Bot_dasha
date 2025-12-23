@@ -1,21 +1,12 @@
-"""
-Простая учебная реализация "базы" для работы с пользователями.
-
-!!! ВАЖНО
-Сейчас всё хранится просто в памяти процесса (в глобальных переменных).
-После перезапуска бота данные пропадут.
-
-Позже сюда можно будет прикрутить настоящую БД (Postgres + SQLAlchemy),
-сохранив те же имена функций, чтобы не переписывать хендлеры.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
+# чаты, которые мы хотим проверять по расписанию
+_moderated_chats: set[int] = set()
 
-# Чёрный список пользователей: просто id
+# Черный список пользователей: просто id
 _blacklist: Set[int] = set()
 
 # Логи действий модерации
@@ -24,8 +15,8 @@ _logs: List[Dict[str, object]] = []
 
 async def add_to_blacklist(user_id: int, username: Optional[str] = None) -> bool:
     """
-    Добавить пользователя в чёрный список.
-    Возвращает True, если добавили, False — если он уже там был.
+    Добавить пользователя в черный список.
+    Возвращает True, если добавили, False - если он уже там был.
     """
     global _blacklist, _logs
 
@@ -46,8 +37,8 @@ async def add_to_blacklist(user_id: int, username: Optional[str] = None) -> bool
 
 async def remove_from_blacklist(user_id: int) -> bool:
     """
-    Удалить пользователя из чёрного списка.
-    True — если удалили, False — если его там не было.
+    Удалить пользователя из черного списка.
+    True - если удалили, False - если его там не было.
     """
     global _blacklist, _logs
 
@@ -67,10 +58,7 @@ async def remove_from_blacklist(user_id: int) -> bool:
 
 async def get_stats() -> Dict[str, object]:
     """
-    Вернуть простую статистику:
-    - сколько пользователей в чёрном списке
-    - сколько всего действий
-    - текст про последнюю операцию (если была)
+    Вернуть простую статистику
     """
     blacklist_count = len(_blacklist)
     total_actions = len(_logs)
@@ -92,15 +80,44 @@ async def get_stats() -> Dict[str, object]:
 
 async def run_check_for_chat(chat_id: int) -> List[int]:
     """
-    Учебная версия проверки чата.
-    Сейчас просто возвращает список id из чёрного списка,
-    будто бы мы их "нашли" в чате и забанили.
-
-    Позже здесь можно будет:
-    - спросить у Telegram список участников чата
-    - сравнить его с чёрным списком
-    - реально вызывать ban/kick.
+    Возвращает список пользователей, которых имеет смысл проверить/забанить в чате
     """
-    # chat_id пока не используем, но аргумент оставляем, чтобы интерфейс не менять
-    _ = chat_id
+    _logs.append(
+        {
+            "action": "check_chat",
+            "chat_id": chat_id,
+            "count": len(_blacklist),
+            "timestamp": datetime.utcnow(),
+        }
+    )
+
+    # возвращаем список id из черного списка
     return list(_blacklist)
+
+
+async def add_moderated_chat(chat_id: int) -> bool:
+    """
+    Добавляем чат в список тех, которые надо проверять
+    True - если реально новый, False - уже был
+    """
+    if chat_id in _moderated_chats:
+        return False
+    _moderated_chats.add(chat_id)
+    return True
+
+
+async def remove_moderated_chat(chat_id: int) -> bool:
+    """
+    Убираем чат из списка для проверки
+    """
+    if chat_id not in _moderated_chats:
+        return False
+    _moderated_chats.remove(chat_id)
+    return True
+
+
+async def get_moderated_chats() -> list[int]:
+    """
+    Просто отдаем текущий список чатов из памяти
+    """
+    return list(_moderated_chats)
