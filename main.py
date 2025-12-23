@@ -21,53 +21,50 @@ from bot.database.repository import user_repo
 from bot.database.connection import init_db
 from bot.handlers import start as start_handlers
 from bot.handlers import admin as admin_handlers
+from bot.database.repository import user_repo
 from bot.handlers import common as common_handlers
 
 
 CHECK_EVERY_SECONDS = 60 * 60 * 24  # раз в сутки
 
 async def periodic_cleanup(bot: Bot) -> None:
+    """
+    Фоновая чистка чатов по чс
+    """
     logging.info("periodic_cleanup: фоновый сервис стартовал")
 
     while True:
-        # собираем чаты: из .env + те, что добавили командами
-        dynamic_ids = await user_repo.get_moderated_chats()
-        chat_ids = list(set(MODERATED_CHAT_IDS + dynamic_ids))
+        chats_from_config = list(MODERATED_CHAT_IDS)
 
-        if not chat_ids:
+        # чаты, добавленные через /addchat и хранящиеся в бд
+        try:
+            chats_from_db = await user_repo.get_moderated_chats()
+        except Exception as exc:
+            logging.error("periodic_cleanup: не смогли получить чаты из БД: %r", exc)
+            chats_from_db = []
+
+        # объединяем, убираем дубли
+        chats = sorted({*chats_from_config, *chats_from_db})
+
+        if not chats:
             logging.info("periodic_cleanup: чатов нет, просто сплю")
-            await asyncio.sleep(CHECK_EVERY_SECONDS)
+            await asyncio.sleep(CLEANUP_EVERY_SECONDS)
             continue
 
-        logging.info("periodic_cleanup: проверяю чаты: %s", chat_ids)
+        for chat_id in chats:
+            banned = await admin_handlers._ban_blacklisted_in_chat(bot, chat_id)
+            logging.info(
+                "periodic_cleanup: чат %s, забанили %d пользователей из чёрного списка",
+                chat_id,
+                len(banned),
+            )
 
-        for chat_id in chat_ids:
-            try:
-                banned_ids = await user_repo.run_check_for_chat(chat_id)
-            except Exception as e:
-                logging.exception("periodic_cleanup: ошибка при проверке чата %s: %s", chat_id, e)
-                continue
-
-            if not banned_ids:
-                logging.info("periodic_cleanup: в чате %s нарушителей не нашли", chat_id)
-                continue
-
-            for user_id in banned_ids:
-                try:
-                    await bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
-                    logging.info("periodic_cleanup: забанил %s в чате %s", user_id, chat_id)
-                except Exception as e:
-                    logging.exception(
-                        "periodic_cleanup: не смог забанить %s в чате %s: %s",
-                        user_id, chat_id, e,
-                    )
-
-        await asyncio.sleep(CHECK_EVERY_SECONDS)
+        await asyncio.sleep(CLEANUP_EVERY_SECONDS)
 
 
 async def setup_commands(bot: Bot) -> None:
     """
-    Регистрируем команды, которые будут показываться в меню бота.
+    Регистрируем команды, которые будут показываться в меню бота
     """
     commands = [
         BotCommand(command="start",       description="краткая справка и проверка, что бот жив"),
