@@ -1,15 +1,17 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# отдельно копируем requirements, чтобы докер не пересобирал слои каждый раз
+# обновим pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# копируем зависимости и ставим их
 COPY requirements.txt .
 
-# ставим зависимости
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# а теперь уже весь остальной код
+# копируем всё приложение
 COPY . .
 
+# запускаем бота
 CMD ["python", "main.py"]

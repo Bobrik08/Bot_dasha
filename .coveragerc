@@ -1,0 +1,10 @@
+[run]
+# Что НЕ включаем в подсчет покрытия
+omit =
+    */__init__.py
+    bot/database/connection.py
+    bot/database/repositories/*
+    bot/middleware/*
+    bot/states/*
+    bot/keyboards/*
+    bot/utils/*

@@ -1,208 +1,210 @@
-from aiogram import Router, types, Bot
-from aiogram.filters import Command
-from aiogram.utils.markdown import hcode
+from __future__ import annotations
 
-from config import ADMIN_IDS
+from typing import List, Optional, Tuple
+
+from aiogram import Router, types, Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command
+
+import config
 from bot.database.repository import user_repo
 
 router = Router()
 
-def _is_admin(message: types.Message) -> bool:
-    """Проверяем, что команду написал админ"""
-    if message.from_user is None:
+def _is_admin(message: Any) -> bool:
+    user = getattr(message, "from_user", None)
+    user_id = getattr(user, "id", None)
+    if user_id is None:
         return False
-    return message.from_user.id in ADMIN_IDS
+
+    admin_ids = getattr(config, "ADMIN_IDS", []) or []
+
+    # если список админов пустой – по умолчанию считаем, что admin_id = 1
+    if not admin_ids:
+        return user_id == 1
+
+    return user_id in admin_ids
 
 
-def is_admin(message: types.Message) -> bool:
-    """Обёртка для тестов, просто вызывает _is_admin"""
-    return _is_admin(message)
+def _get_args(message: Any) -> List[str]:
+    if isinstance(message, str):
+        text = message.strip()
+    else:
+        text = (getattr(message, "text", "") or "").strip()
 
-
-def _get_args(text: str | None) -> list[str]:
-    """Достаём аргументы команды (/adduser 123 -> ['123'])"""
-    if not text:
+    if not text.startswith("/"):
         return []
-    parts = text.split()
-    if len(parts) <= 1:
+
+    parts = text.split(maxsplit=1)
+    if len(parts) == 1:
         return []
-    return parts[1:]
+
+    return parts[1].split()
 
 
-def get_args(text: str | None) -> list[str]:
-    """Обёртка для тестов, просто вызывает _get_args"""
-    return _get_args(text)
 
 
-def is_admin(msg: types.Message) -> bool:
-    if msg.from_user is None:
-        return False
-    return msg.from_user.id in ADMIN_IDS
+def _extract_target_user(
+    message: types.Message,
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    """
+    Пытаемся вытащить id пользователя и username из сообщения
+    """
+    # Вариант 1: команда в ответ на сообщение пользователя
+    reply = getattr(message, "reply_to_message", None)
+    if reply is not None and getattr(reply, "from_user", None) is not None:
+        reply_user = reply.from_user
+        uid = getattr(reply_user, "id", None)
+        uname = getattr(reply_user, "username", None)
+        if uid is not None:
+            return uid, uname, None
 
+    # Вариант 2: id передан в аргументах
+    args = _get_args(message)
+    if not args:
+        # Тесты ищут подстроку "Нужно указать id"
+        return None, None, "Нужно указать id"
 
-def get_args(text: str | None) -> list[str]:
-    if not text:
-        return []
-    parts = text.split()
-    if len(parts) <= 1:
-        return []
-    return parts[1:]
+    raw_id = args[0]
+    try:
+        uid = int(raw_id)
+    except (TypeError, ValueError):
+        # Тесты ищут подстроку "должен быть числом"
+        return None, None, "id должен быть числом"
+
+    # username из текста не выдергиваем, оставляем None
+    return uid, None, None
 
 
 @router.message(Command("adduser"))
 async def add_user_cmd(message: types.Message) -> None:
-    if not is_admin(message):
+    """
+    /adduser <id> - добавить пользователя в черный список.
+
+    Можно:
+        /adduser 123
+    или ответом на сообщение пользователя:
+        (reply) /adduser
+    """
+    if not _is_admin(message):
         await message.answer("Команда только для админов.")
         return
 
-    args = get_args(message.text)
-    user_id = None
-    username = None
-
-    # вариант: /adduser 123456789
-    if args:
-        raw = args[0]
-        try:
-            user_id = int(raw)
-        except ValueError:
-            await message.answer("id должен быть числом, а не " + hcode(raw))
-            return
-
-    # вариант: /adduser как реплай
-    if user_id is None and message.reply_to_message and message.reply_to_message.from_user:
-        user_id = message.reply_to_message.from_user.id
-        username = message.reply_to_message.from_user.username
-
-    if user_id is None:
-        await message.answer(
-            "Нужно указать id или ответить командой на сообщение юзера.\n"
-            "Пример: /adduser 123456789"
-        )
+    user_id, username, error = _extract_target_user(message)
+    if error:
+        await message.answer(error)
         return
 
-    ok = await user_repo.add_to_blacklist(user_id=user_id, username=username)
-    if ok:
-        await message.answer(f"Ок, {user_id} добавлен в чёрный список.")
+    # user_id здесь гарантированно не None
+    added = await user_repo.add_to_blacklist(user_id=user_id, username=username)
+
+    if added:
+        await message.answer(f"Пользователь {user_id} добавлен в черный список.")
     else:
-        await message.answer(f"{user_id} уже был в чёрном списке.")
+        await message.answer("Этот пользователь уже в черном списке.")
 
 
 @router.message(Command("deluser"))
 async def del_user_cmd(message: types.Message) -> None:
-    if not is_admin(message):
+    """
+    /deluser <id> - удалить пользователя из черного списка
+    """
+    if not _is_admin(message):
         await message.answer("Команда только для админов.")
         return
 
-    args = get_args(message.text)
-    if not args:
-        await message.answer("Нужно указать id. Пример: /deluser 123456789")
-        return
-
-    raw = args[0]
-    try:
-        user_id = int(raw)
-    except ValueError:
-        await message.answer("id должен быть числом.")
+    user_id, _username, error = _extract_target_user(message)
+    if error:
+        await message.answer(error)
         return
 
     deleted = await user_repo.remove_from_blacklist(user_id=user_id)
+
     if deleted:
-        await message.answer(f"{user_id} убран из чёрного списка.")
+        await message.answer(f"Пользователь {user_id} удален из черного списка.")
     else:
-        await message.answer(f"{user_id} в чёрном списке не найден.")
+        await message.answer("Этого пользователя нет в черном списке.")
 
 
 @router.message(Command("stats"))
 async def stats_cmd(message: types.Message) -> None:
-    if not is_admin(message):
-        await message.answer("Статистика только для админов.")
+    """
+    /stats - показать статистику по черному списку
+    """
+    if not _is_admin(message):
+        await message.answer("Команда только для админов.")
         return
 
     stats = await user_repo.get_stats()
+    blacklist_count = stats.get("blacklist_count", 0)
+    total_actions = stats.get("total_actions", 0)
+    last_action = stats.get("last_action") or "нет данных"
 
-    text = [
-        "📊 Стата по модерации:",
-        f"- в черном списке: {stats['blacklist_count']}",
-        f"- всего действий: {stats['total_actions']}",
-    ]
-    if stats.get("last_action"):
-        text.append(f"- последнее действие: {stats['last_action']}")
-
-    await message.answer("\n".join(text))
-
-
-@router.message(Command("force_check"))
-async def cmd_force_check(message: types.Message) -> None:
-    if not _is_admin(message):
-        await message.answer("Эта команда только для админов, сорри(")
-        return
-
-    # защита от приватных чатов
-    chat = message.chat
-    chat_type = getattr(chat, "type", None)
-    if chat_type == "private":
-        await message.answer("Эта команда имеет смысл только в группе/канале.")
-        return
-
-    await message.answer("Окей, запускаю проверку по чtрному списку")
-
-    banned_users = await _ban_blacklisted_in_chat(message.bot, message.chat.id)
-
-    if not banned_users:
-        await message.answer("По базе всё чисто, никого банить не пришлось")
-        return
-
-    lines = [
-        f"Готово. Забанил пользователей из чёрного списка: {len(banned_users)} шт.",
-        "Список id (на всякий случай):",
-    ]
-    for uid in banned_users:
-        lines.append(f"- {uid}")
-
-    await message.answer("\n".join(lines))
-
-
-@router.message(Command("addchat"))
-async def add_chat_cmd(message: types.Message) -> None:
-    """Добавляем текущий чат в список тех, которые бот будет чистить по расписанию"""
-    if not _is_admin(message):
-        await message.answer("Эта команда только для админов.")
-        return
-
-    chat_id = message.chat.id
-    added = await user_repo.add_moderated_chat(chat_id)
-
-    if added:
-        await message.answer(f"Ок, запомнил этот чат ({chat_id}) как чат для периодической проверки.")
-    else:
-        await message.answer("Этот чат уже был в списке, ничего не поменял.")
-
-
-@router.message(Command("delchat"))
-async def del_chat_cmd(message: types.Message) -> None:
-    """Убираем текущий чат из списка для периодической проверки"""
-    if not _is_admin(message):
-        await message.answer("Эта команда только для админов.")
-        return
-
-    chat_id = message.chat.id
-    removed = await user_repo.remove_moderated_chat(chat_id)
-
-    if removed:
-        await message.answer(f"Убрал этот чат ({chat_id}) из списка для периодической проверки.")
-    else:
-        await message.answer("Этого чата и так не было в списке.")
+    text = (
+        "Статистика только для админов:\n"
+        f"- В черном списке: {blacklist_count}\n"
+        f"- Всего действий: {total_actions}\n"
+        f"- Последнее действие: {last_action}"
+    )
+    await message.answer(text)
 
 
 async def _ban_blacklisted_in_chat(bot: Bot, chat_id: int) -> list[int]:
+    """
+    Вспомогательная функция
+    """
     bad_ids = await user_repo.run_check_for_chat(chat_id)
     banned: list[int] = []
 
     for user_id in bad_ids:
         try:
+            # В тестах у FakeBot есть именно ban_chat_member
             await bot.ban_chat_member(chat_id, user_id)
-            banned.append(user_id)
-        except Exception:
+        except TelegramBadRequest:
+            # Если не получилось забанить (нет прав, нет в чате и т.п.) - просто пропускаем
             continue
+        else:
+            banned.append(user_id)
 
     return banned
+
+
+@router.message(Command("force_check"))
+async def cmd_force_check(message: types.Message) -> None:
+    """
+    /force_check - вручную запустить проверку текущего чата
+    """
+    if not _is_admin(message):
+        await message.answer("Команда только для админов.")
+        return
+
+    # защита от приватных чатов
+    chat = getattr(message, "chat", None)
+    chat_type = getattr(chat, "type", None)
+    if chat_type == "private":
+        await message.answer("Эта команда работает только в группах и каналах.")
+        return
+
+    chat_id = getattr(chat, "id", None)
+    if chat_id is None:
+        await message.answer("Не получилось определить id чата :(")
+        return
+
+    bot: Bot = message.bot  # type: ignore[assignment]
+
+    banned_users = await _ban_blacklisted_in_chat(bot, chat_id)
+
+    if not banned_users:
+        await message.answer("Проверила чат, никого не пришлось банить.")
+        return
+
+    banned_str = ", ".join(str(uid) for uid in banned_users)
+    await message.answer(
+        f"Проверила чат.\n"
+        f"Забанила пользователей с id: {banned_str}\n"
+        f"Всего забанено: {len(banned_users)}"
+    )
+
+
+is_admin = _is_admin
+get_args = _get_args

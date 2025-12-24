@@ -3,71 +3,72 @@
 
 Содержит функции для создания и управления подключением к БД.
 Используется асинхронный режим SQLAlchemy.
+
+Важно:
+- Для "боевого" кода есть класс Database и объект db.
+- Для старого кода и тестов оставлен совместимый интерфейс engine + SessionFactory.
 """
+
+from __future__ import annotations
 
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
+    async_sessionmaker,
     create_async_engine,
-    async_sessionmaker
 )
 from sqlalchemy.pool import NullPool
 
-from config import settings
+from config import DATABASE_URL
 from bot.database.models import Base
 
 
 class Database:
-    """Класс для управления подключением к базе данных."""
-    
+    """Класс для управления подключением к базе данных"""
+
     def __init__(self) -> None:
-        """Инициализация подключения к БД."""
         self.engine: AsyncEngine | None = None
         self.session_factory: async_sessionmaker[AsyncSession] | None = None
-    
-    def initialize(self) -> None:
-        """Инициализация подключения к базе данных."""
-        database_url = (
-            f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}"
-            f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-        )
-        
+
+    def initialize(self, url: str | None = None) -> None:
+        """
+        Инициализировать подключение к базе данных
+        """
+        db_url = url or DATABASE_URL
+
         self.engine = create_async_engine(
-            database_url,
-            echo=False,  # Установить True для отладки SQL запросов
-            poolclass=NullPool,  # Для асинхронных операций
-            future=True
+            db_url,
+            echo=False,
+            poolclass=NullPool,
+            future=True,
         )
-        
+
         self.session_factory = async_sessionmaker(
             self.engine,
             class_=AsyncSession,
             expire_on_commit=False,
             autoflush=False,
-            autocommit=False
+            autocommit=False,
         )
-    
+
     async def close(self) -> None:
-        """Закрытие подключения к базе данных."""
+        """Закрыть подключение к базе данных"""
         if self.engine:
             await self.engine.dispose()
-    
+
     async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
-        """Получение сессии БД.
-        
-        Yields:
-            AsyncSession: Сессия базы данных
-            
-        Example:
+        """
+        Получить сессию БД.
+
+        Пример:
             async with db.get_session() as session:
-                # Работа с БД
-                pass
+                ...
         """
         if not self.session_factory:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
-        
+            raise RuntimeError("Database not initialized. Call db.initialize() first.")
+
         async with self.session_factory() as session:
             try:
                 yield session
@@ -77,15 +78,28 @@ class Database:
                 raise
             finally:
                 await session.close()
-    
+
     async def create_tables(self) -> None:
-        """Создание всех таблиц в базе данных."""
+        """Создать все таблицы в базе данных"""
         if not self.engine:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
-        
+            raise RuntimeError("Database not initialized. Call db.initialize() first.")
+
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
 
-# Глобальный экземпляр БД
+# Глобальный объект БД
 db = Database()
+
+engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
+SessionFactory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+# совместимость с main.py: инициализация БД при старте бота
+async def init_db() -> None:
+    """
+    Инициализация БД для старта бота.
+    Сейчас engine/SessionFactory создаются при импорте модуля,
+    поэтому здесь достаточно заглушки. При желании сюда можно
+    добавить создание таблиц через Base.metadata.create_all.
+    """
+    return None
