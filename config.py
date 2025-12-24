@@ -1,65 +1,54 @@
 """
-Конфиг проекта
+Конфигурация проекта.
 
-тут лежит все, что может понадобиться боту:
-- токен
-- список админов
-- строка подключения к БД
-- какие чаты бот периодически чистит
+Содержит настройки бота, базы данных и другие параметры.
+Секреты загружаются из переменных окружения через .env файл.
+
+Юля, на всякий случай, не надо коммитить секреты!
+Файл .env должен быть в .gitignore и не попадать в репозиторий.
 """
 
-import os
-
-from dotenv import load_dotenv
-
-load_dotenv()
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
-def _parse_ids(env_name: str) -> list[int]:
-
-    raw = os.getenv(env_name, "")
-    result: list[int] = []
-
-    for chunk in raw.split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        try:
-            result.append(int(chunk))
-        except ValueError:
-            print(f"[config] предупреждение: в переменной {env_name} встретилось странное значение: {chunk!r}")
-
-    return result
-
-
-# токен бота
-
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-if not BOT_TOKEN:
-    raise SystemExit("[config] Не задан BOT_TOKEN в .env, боту нечем авторизоваться(")
-
-
-# админы бота
-
-ADMIN_IDS: list[int] = _parse_ids("ADMIN_IDS")
-
-if not ADMIN_IDS:
-    print("[config] предупреждение: ADMIN_IDS пустой. Админов сейчас нет")
-
-
-# база данных
-
-# здесь лежит URL до бд
-DATABASE_URL: str = os.getenv(
-    "DATABASE_URL",
-    "sqlite+aiosqlite:///./bot_data.db",
-)
+class Settings(BaseSettings):
+    """Настройки приложения."""
+    
+    # Токен бота
+    bot_token: str = Field(..., env="BOT_TOKEN", description="Токен Telegram бота")
+    
+    # Настройки базы данных
+    db_host: str = Field(default="localhost", env="DB_HOST", description="Хост БД")
+    db_port: int = Field(default=5432, env="DB_PORT", description="Порт БД")
+    db_name: str = Field(..., env="DB_NAME", description="Имя базы данных")
+    db_user: str = Field(..., env="DB_USER", description="Пользователь БД")
+    db_password: str = Field(..., env="DB_PASSWORD", description="Пароль БД")
+    
+    # ID администраторов (строка через запятую, например: "123456789,987654321")
+    admin_ids_str: str = Field(default="", env="ADMIN_IDS", description="Список ID администраторов через запятую")
+    
+    @property
+    def admin_ids(self) -> list[int]:
+        """Получить список ID администраторов.
+        
+        Returns:
+            Список ID администраторов
+        """
+        if not self.admin_ids_str:
+            return []
+        return [int(id.strip()) for id in self.admin_ids_str.split(",") if id.strip()]
+    
+    # Настройки логирования
+    log_level: str = Field(default="INFO", env="LOG_LEVEL", description="Уровень логирования")
+    log_file: str = Field(default="bot.log", env="LOG_FILE", description="Файл для логов")
+    
+    class Config:
+        """Конфигурация Pydantic."""
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
 
 
-# чаты, которые бот чистит по расписанию
-
-MODERATED_CHAT_IDS: list[int] = _parse_ids("MODERATED_CHAT_IDS")
-
-if not MODERATED_CHAT_IDS:
-    print("[config] инфо: MODERATED_CHAT_IDS пустой, периодическая проверка чатов выключена")
+# Глобальный экземпляр настроек
+settings = Settings()
