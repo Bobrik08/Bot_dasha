@@ -1,54 +1,87 @@
-"""
-Конфигурация проекта.
+# config.py
+from __future__ import annotations
 
-Содержит настройки бота, базы данных и другие параметры.
-Секреты загружаются из переменных окружения через .env файл.
+import logging
+import os
+from typing import List, Optional
 
-Юля, на всякий случай, не надо коммитить секреты!
-Файл .env должен быть в .gitignore и не попадать в репозиторий.
-"""
-
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("config")
+logging.basicConfig(level=logging.INFO)
 
 
 class Settings(BaseSettings):
-    """Настройки приложения."""
-    
-    # Токен бота
-    bot_token: str = Field(..., env="BOT_TOKEN", description="Токен Telegram бота")
-    
-    # Настройки базы данных
-    db_host: str = Field(default="localhost", env="DB_HOST", description="Хост БД")
-    db_port: int = Field(default=5432, env="DB_PORT", description="Порт БД")
-    db_name: str = Field(..., env="DB_NAME", description="Имя базы данных")
-    db_user: str = Field(..., env="DB_USER", description="Пользователь БД")
-    db_password: str = Field(..., env="DB_PASSWORD", description="Пароль БД")
-    
-    # ID администраторов (строка через запятую, например: "123456789,987654321")
-    admin_ids_str: str = Field(default="", env="ADMIN_IDS", description="Список ID администраторов через запятую")
-    
+    # токен бота
+    bot_token: str = Field(..., env="BOT_TOKEN")
+
+    # параметры БД (значения по умолчанию такие же, как в docker-compose)
+    db_name: str = Field("dashabot", env="POSTGRES_DB")
+    db_user: str = Field("dashabot", env="POSTGRES_USER")
+    db_password: str = Field("dashabot", env="POSTGRES_PASSWORD")
+    db_host: str = Field("db", env="POSTGRES_HOST")
+    db_port: int = Field(5432, env="POSTGRES_PORT")
+
+    # «сырые» значения списков из окружения
+    admin_ids_raw: Optional[str] = Field(default=None, env="ADMIN_IDS")
+    moderated_chat_ids_raw: Optional[str] = Field(default=None, env="MODERATED_CHAT_IDS")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     @property
-    def admin_ids(self) -> list[int]:
-        """Получить список ID администраторов.
-        
-        Returns:
-            Список ID администраторов
-        """
-        if not self.admin_ids_str:
-            return []
-        return [int(id.strip()) for id in self.admin_ids_str.split(",") if id.strip()]
-    
-    # Настройки логирования
-    log_level: str = Field(default="INFO", env="LOG_LEVEL", description="Уровень логирования")
-    log_file: str = Field(default="bot.log", env="LOG_FILE", description="Файл для логов")
-    
-    class Config:
-        """Конфигурация Pydantic."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    def database_url(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
 
-# Глобальный экземпляр настроек
 settings = Settings()
+
+
+def _parse_int_list(raw: Optional[str]) -> List[int]:
+    """
+    Превращаем строку вида "1,2, 3" в [1, 2, 3].
+    Если ничего нет или все битое – возвращаем пустой список.
+    """
+    if not raw:
+        return []
+
+    result: List[int] = []
+    for chunk in raw.replace(" ", "").split(","):
+        if not chunk:
+            continue
+        try:
+            result.append(int(chunk))
+        except ValueError:
+            logger.warning("[config] не удалось разобрать '%s' как int в списке", chunk)
+    return result
+
+
+# ==== экспортируемые значения, которые используют хендлеры/БД ====
+
+BOT_TOKEN: str = settings.bot_token
+DATABASE_URL: str = settings.database_url
+
+# Сначала берем из pydantic (он уже прочитал .env), если вдруг пусто – напрямую из os.environ
+ADMIN_IDS: List[int] = _parse_int_list(settings.admin_ids_raw or os.getenv("ADMIN_IDS"))
+MODERATED_CHAT_IDS: List[int] = _parse_int_list(
+    settings.moderated_chat_ids_raw or os.getenv("MODERATED_CHAT_IDS")
+)
+
+if not ADMIN_IDS:
+    logger.info("[config] предупреждение: ADMIN_IDS пустой, команды админов будут недоступны")
+else:
+    logger.info("[config] ADMIN_IDS = %s", ADMIN_IDS)
+
+if not MODERATED_CHAT_IDS:
+    logger.info(
+        "[config] инфо: MODERATED_CHAT_IDS пустой, периодическая проверка чатов выключена"
+    )
+else:
+    logger.info("[config] MODERATED_CHAT_IDS = %s", MODERATED_CHAT_IDS)
