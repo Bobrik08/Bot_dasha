@@ -1,19 +1,12 @@
-"""
-================================================================================
-ПАКЕТ HANDLERS - ОБРАБОТЧИКИ СООБЩЕНИЙ И КОМАНД
-================================================================================
+from aiogram import Dispatcher
 
-Этот файл регистрирует все обработчики бота.
-Здесь происходит импорт и регистрация всех handlers из подмодулей.
+from . import start, admin, common
 
-ЧТО НУЖНО СДЕЛАТЬ:
-- [ ] Импортировать все обработчики из подмодулей
-- [ ] Создать функцию register_all_handlers(dp: Dispatcher)
-- [ ] В этой функции вызвать все функции регистрации
-- [ ] Добавить логирование регистрации обработчиков
 
-"""
+def register_all_handlers(dp: Dispatcher) -> None:
+    dp.include_router(start.router)
+    dp.include_router(admin.router)
+    dp.include_router(common.router)
 
-# TODO: Импортировать все обработчики
-# TODO: Создать функцию register_all_handlers
 
+__all__ = ["register_all_handlers"]
